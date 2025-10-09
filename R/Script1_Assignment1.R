@@ -10,20 +10,22 @@
 #Help Package for countrycode package: https://cran.r-project.org/web/packages/countrycode/refman/countrycode.html
 
 
-# Downloading Packages if not installed:
+# Downloading Packages if not installed: Loop checks if the packages are already installed, if not it installs them, if they are it loads them.
 
-#Add for loop here ---> 
-install.packages('countrycode')
-
-# Loading Libraries ===============
-library(tidyverse)
-library(dplyr)
-library(vegan)
-library(countrycode)
+required_packages <- c('tidyverse', 'dplyr', 'vegan', 'countrycode', 'viridis', 'ggplot2')
+for (package in required_packages) {
+  if (!require(package, character.only = TRUE)) {
+    install.packages(package)
+    library(package)
+  }
+  else {
+    library(package, character.only = TRUE)
+  }
+}
 
 # Importing Data ===============
-
-raw_data <- read_tsv("data/result.tsv")
+#Ensure working directory is set to source file location
+raw_data <- read_tsv("../data/result.tsv")
 
 # Cleaning Data =================
 
@@ -57,9 +59,10 @@ cleaned_data$Continent <- countrycode(
   origin = "country.name.en",
   destination = "continent")
 
-# Creating data frame with columns as unique continents, rows as unique BIN IDs, values as 0 (absence) or 1 (presence)
+### Creating presence-absence table ====
+#data frame with columns as unique continents, rows as unique BIN IDs, values as 0 (absence) or 1 (presence)
 
-presence_absence_table <- cleaned_data %>% 
+df_presence_absence <- as.data.frame(cleaned_data %>% 
   select(bin_uri, Continent) %>% #This table only needs the BIN IDs and continents
   mutate(presence = 1) %>% #Make a new column with the presence value of the species
   distinct(bin_uri, Continent, .keep_all = TRUE) %>% #Remove duplicate species 
@@ -68,9 +71,70 @@ presence_absence_table <- cleaned_data %>%
     values_from = presence, #New column we made is presence, 1 by default if present
     values_fill = 0
   )
-#https://www.youtube.com/watch?v=XUQl31aLMhI
-#Calculate similarity, 
-dist_matrix <- vegdist(bin_table, method = "jaccard")
+)
+
+#Setting the BIN IDs as row names
+rownames(df_presence_absence) <- df_presence_absence$bin_uri
+df_presence_absence <- df_presence_absence[, !(names(df_presence_absence) %in% "bin_uri")]
+ 
+
+#Save the tsv (uncomment to run again)
+#write_tsv(presence_absence_table, file = "../figures/Presence_absence_table.tsv")
+
+### Basic data summary: Richness per continent ========
+
+
+#Calculate richness per continent (column)
+continent_richness <- colSums(df_presence_absence)
+
+#Create df to plot
+df_richness <- data.frame(
+  Continent = names(continent_richness),
+  Richness = as.numeric(continent_richness),
+)
+#Arrange continents in descending order of richness, convert into factor so it stays ordered
+df_richness <- df_richness %>% 
+  arrange(desc(Richness)) %>% 
+  mutate(Continent = factor(Continent, levels = Continent))
+
+
+### Dissimiarlity between continents ====
+#Asks - how many species do two continents share, and how many are unique to each? -> overlap and uniqueness of species between regions
+
+#Gets a distance matrix showing pairwise dissimilarities between continents (lower numbers = more similarity), transpose to compare continents
+jaccard_dist_cont <- vegdist(t(df_presence_absence), method = "jaccard")
+
+#Make it a matrix so it's got complete data value, then as a table then dataframe to get a tidy and complete set of pairwise comparisons
+jaccard_matrix_continent <- as.matrix(jaccard_dist_cont)
+df_heatmap_cont <- as.data.frame(as.table(jaccard_matrix_continent)) %>% 
+  rename("Continent1" = Var1, "Continent2" = Var2, "Disimilarity" = Freq)
+
+
+
+# 
+# 
+# 
+# nmds <- metaMDS(t(df_presence_absence), distance = "jaccard")
+# plot(nmds)
+# 
+# plot(hclust(jaccard_dist_continent))
+# 
+# 
+# 
+# df_bin_table <- df_presence_absence %>% 
+#   t() %>% 
+#   as.data.frame() %>% 
+#   rownames_to_column(var = "Continent")
+# 
+# #Renaming the columns with the first row
+# bin_table <- bin_table %>% 
+#   rename_with(function(x) bin_table[1, ])
+# 
+# #Add 
+# bin_richness <- lapply(bin_table, sum)
+# 
+# 
+# bin_richness <- vegdist(bin_table, method = "jaccard")
 
 
 # 
@@ -101,13 +165,39 @@ dist_matrix <- vegdist(bin_table, method = "jaccard")
 #dist_matrix 
 # Visualizations =========================
 
+## Bar plot for BIN Richness per continent ====
+
+ggplot(df_richness, aes(x = Continent, y = Richness, fill = Continent))+
+  geom_col() + 
+  theme_classic() + 
+  labs(title = "Canidae BIN Richness per Continent",
+       x = "Continent", 
+       y = "BIN Richness") +
+  theme(plot.title = element_text(hjust = 0.5),legend.position = "none")
+
+#Save plot
+ggsave("../figures/plot_continent_richenss.png", width = 6, height = 4, dpi = 300)
+
+## Heat map for Jaccard disimilarities
+ggplot(df_heatmap_cont, aes(x = Continent1, y = Continent2, fill = Disimilarity))+
+  geom_tile() +
+  scale_fill_viridis_b() +
+  theme_classic()+
+  labs(title = "Jaccard Disimilarity Score",
+       x = "Continent",
+       y = "Continent",)
+
+#Save heatmap
+ggsave("../figures/heatmap_continent_jaccard.png", width = 6, height = 4, dpi = 300)
+
 # TODO ====
 #ASK if we can bring in other packages in R
 #ASK if we can use loops (to add the install packages loop, so they'll install if they aren't loaded)
 #Ask if that's enough?
 #Add the testing for if there's country/ocean that's NA but country_iso that isn't?
 #Ask about the GEOID, unrecoverable, exception - Culture and Exception - Zoo
-#Add data summary?
+#Add data summary? --> can add other stuff but put a note saying it was inconclusive
 #Try to make presence absence table with different package or in a pipe?
+#We include summary / exploration of data?
 
 
