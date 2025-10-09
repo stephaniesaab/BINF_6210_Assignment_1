@@ -12,7 +12,7 @@
 
 # Downloading Packages if not installed: Loop checks if the packages are already installed, if not it installs them, if they are it loads them.
 
-required_packages <- c('tidyverse', 'dplyr', 'vegan', 'countrycode', 'viridis', 'ggplot2')
+required_packages <- c('tidyverse', 'dplyr', 'vegan', 'countrycode', 'viridis', 'ggplot2', 'igraph')
 for (package in required_packages) {
   if (!require(package, character.only = TRUE)) {
     install.packages(package)
@@ -33,13 +33,15 @@ raw_data <- read_tsv("../data/result.tsv")
 #Using the OR to ensure that we're getting all cases with at least one geographic identifier (country/ocean, country_iso, or province/state)
 #It was observed that for cases where country/ocean was NA, the country_iso and province/state were also NA, so only need to filter for NA in country/ocean column
 #Want to filter for valid country IDs (some invalid ones were found to be Exception - Culture, Exception - Zoological Park, Unrecoverable")
-#Results in a table with 1343 rows (nrow(cleaned_data) = 1343)
+#Filtering for NA in the country/ocean column and bin_uri columns as they are most important
+#Results have 1343 rows (nrow(cleaned_data_bins) = 1343)
 
-cleaned_data <- raw_data %>%
+cleaned_data_bins <- raw_data %>%
   select(bin_uri, species, `country/ocean`) %>% 
   filter(!is.na(bin_uri) & !is.na(`country/ocean`)) %>% 
   filter(!`country/ocean`%in% c("Exception - Culture", "Exception - Zoological Park", "Unrecoverable")) 
-  
+nrow(cleaned_data_bins) #Should be 1343
+
 # Summarizing Data ==================
 #Summarize and describe data (counts, means, etc.)
 
@@ -53,16 +55,23 @@ cleaned_data <- raw_data %>%
 #Using code of country name in English
 #Destination is the continent as defined in the World Bank Development Indicators
 #This initially didn't match some values as there are some values which are not country codes: "Exception - Culture, Exception - Zoological Park, Unrecoverable"
-#Want to filter these out as we want to identify biodiversity in the native habitats, not 
-cleaned_data$Continent <- countrycode(
-  cleaned_data$`country/ocean`,
+#Want to filter these out as we want to identify biodiversity in the native habitats
+cleaned_data_bins$Continent <- countrycode(
+  cleaned_data_bins$`country/ocean`,
   origin = "country.name.en",
   destination = "continent")
+
+#Removing NAs from species column for species analysis in part 3
+#Should give table of 1334 observations
+
+cleaned_data_species <- cleaned_data_bins %>% 
+  filter(!is.na(species)) %>% 
+  select(species, Continent)
 
 ### Creating presence-absence table ====
 #data frame with columns as unique continents, rows as unique BIN IDs, values as 0 (absence) or 1 (presence)
 
-df_presence_absence <- as.data.frame(cleaned_data %>% 
+df_presence_absence <- as.data.frame(cleaned_data_bins %>% 
   select(bin_uri, Continent) %>% #This table only needs the BIN IDs and continents
   mutate(presence = 1) %>% #Make a new column with the presence value of the species
   distinct(bin_uri, Continent, .keep_all = TRUE) %>% #Remove duplicate species 
@@ -90,25 +99,64 @@ continent_richness <- colSums(df_presence_absence)
 #Create df to plot
 df_richness <- data.frame(
   Continent = names(continent_richness),
-  Richness = as.numeric(continent_richness),
+  Richness = as.numeric(continent_richness)
 )
-#Arrange continents in descending order of richness, convert into factor so it stays ordered
+
+#Arrange continents in descending order of richness, convert into factor to stay ordered in plot
 df_richness <- df_richness %>% 
   arrange(desc(Richness)) %>% 
   mutate(Continent = factor(Continent, levels = Continent))
 
 
-### Dissimiarlity between continents ====
+### Disimiarlity between continents ====
 #Asks - how many species do two continents share, and how many are unique to each? -> overlap and uniqueness of species between regions
 
 #Gets a distance matrix showing pairwise dissimilarities between continents (lower numbers = more similarity), transpose to compare continents
 jaccard_dist_cont <- vegdist(t(df_presence_absence), method = "jaccard")
 
 #Make it a matrix so it's got complete data value, then as a table then dataframe to get a tidy and complete set of pairwise comparisons
+#Highest disimilarity is between Africa and Americas
+#Lowest disimilarity is between Europe and Asia 
 jaccard_matrix_continent <- as.matrix(jaccard_dist_cont)
 df_heatmap_cont <- as.data.frame(as.table(jaccard_matrix_continent)) %>% 
   rename("Continent1" = Var1, "Continent2" = Var2, "Disimilarity" = Freq)
 
+### Looking at Canidae familiaris distribution and average range size ====
+
+#Compare the number of BINs or average range size for C. familiaris vs. other species.Expect dogs to have global distribution, while wild species are continent-restricted.
+
+
+#Making bipartite network, with nodes representing species and continents, and edges representing presence
+
+df_species_ntwk <- cleaned_data_species %>% 
+  distinct() #Remove duplicate connections
+
+g_species_ntwk <- graph_from_data_frame(df_species_ntwk)
+
+
+
+
+#Setting vertices type based on continent or species
+V(g_species_ntwk)$type <- ifelse(
+  V(g_species_ntwk)$name %in% df_species_ntwk$Continent, "continent", "species"
+  )
+
+#Set vertex colour based on type
+V(g_species_ntwk)$color <- ifelse(
+  V(g_species_ntwk)$type == "continent", "gold", "skyblue")
+  )
+
+#Make Canis familiaris stand out
+V(g_species_ntwk)$color[V(g_species_ntwk)$name == "Canis  familiaris"] <- "red"
+
+
+
+
+
+
+v(g)$type 
+#Create bipartite graph
+species_bip_graph <- make_bipartite_graph(edges = df_species_ntwk)
 
 
 # 
@@ -139,9 +187,9 @@ df_heatmap_cont <- as.data.frame(as.table(jaccard_matrix_continent)) %>%
 
 # 
 # 
-# continents <- c(unique(cleaned_data$Continent))
-# species <- c(unique(cleaned_data$bin_uri))
-# cleaned_data_tib <- tibble(
+# continents <- c(unique(cleaned_data_bins$Continent))
+# species <- c(unique(cleaned_data_bins$bin_uri))
+# cleaned_data_bins_tib <- tibble(
 #   bin_uri = species,
 #   Continent = continents
 # )
@@ -167,8 +215,8 @@ df_heatmap_cont <- as.data.frame(as.table(jaccard_matrix_continent)) %>%
 
 ## Bar plot for BIN Richness per continent ====
 
-ggplot(df_richness, aes(x = Continent, y = Richness, fill = Continent))+
-  geom_col() + 
+ggplot(df_richness, aes(x = Continent, y = Richness))+
+  geom_col(fill = "violet") + 
   theme_classic() + 
   labs(title = "Canidae BIN Richness per Continent",
        x = "Continent", 
@@ -177,11 +225,11 @@ ggplot(df_richness, aes(x = Continent, y = Richness, fill = Continent))+
 
 #Save plot
 ggsave("../figures/plot_continent_richenss.png", width = 6, height = 4, dpi = 300)
-
-## Heat map for Jaccard disimilarities
+ 
+## Heat map for Jaccard disimilarities ====
 ggplot(df_heatmap_cont, aes(x = Continent1, y = Continent2, fill = Disimilarity))+
   geom_tile() +
-  scale_fill_viridis_b() +
+  scale_fill_viridis_c() + 
   theme_classic()+
   labs(title = "Jaccard Disimilarity Score",
        x = "Continent",
@@ -189,6 +237,16 @@ ggplot(df_heatmap_cont, aes(x = Continent1, y = Continent2, fill = Disimilarity)
 
 #Save heatmap
 ggsave("../figures/heatmap_continent_jaccard.png", width = 6, height = 4, dpi = 300)
+
+
+## Bipartite Network for Canis familiaris and species range ====
+plot(g_species_ntwk,
+     layout = layout_with_fr(g_species_ntwk),
+     vertex.size = 6,
+     vertex.label.cex = 0.7,
+     vertex.label.color = 'black', 
+     edge.color = 'gray70',
+     main = 'Network of Canidae Species & Continents range')
 
 # TODO ====
 #ASK if we can bring in other packages in R
@@ -199,5 +257,6 @@ ggsave("../figures/heatmap_continent_jaccard.png", width = 6, height = 4, dpi = 
 #Add data summary? --> can add other stuff but put a note saying it was inconclusive
 #Try to make presence absence table with different package or in a pipe?
 #We include summary / exploration of data?
+#Maybe take out the bar plot if they're only marking 3?
 
 
