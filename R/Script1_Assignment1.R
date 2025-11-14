@@ -275,14 +275,10 @@ df_abundance <- df_abundance %>% column_to_rownames("Continent")
 #add Shannons index 
 
 df_abundance <- df_abundance %>% mutate(Shannon = vegan::diversity(df_abundance, index ="shannon"))
-df
+
 #Highest BIN diversity in the Middle east and   North Africa
 print(df_abundance$Shannon)
 
-<<<<<<< HEAD
-=======
-
->>>>>>> c3dfc1250f3a9067a6f3a14ecb6855acf928116b
 #Edit 3 : Bar plot for shannons index 
 df_abundance$Continent <- rownames(df_abundance)
 
