@@ -1,6 +1,8 @@
 # Assignment 1: BINF6210: Software for Bioinformatics
 # Date: October 13, 2025
 # Author: Stephanie Saab
+#Secondary Contributor: Iroayo Toki
+#Reviewed by: Kexin Gong and Eman Tahir
 # Taxonomy of interest: The Canidae
 # Research Questions: How similar are Canidae BIN compositions across continental regions? Do domestic dogs (Canis familiaris) show a wider geographical diversity patterns than wild canidae species?
 
@@ -99,9 +101,13 @@ df_presence_absence <- as.data.frame(cleaned_data_bins %>%
     values_fill = 0
   ))
 
-# Setting the BIN IDs as row names
-rownames(df_presence_absence) <- df_presence_absence$bin_uri
-df_presence_absence <- df_presence_absence[, !(names(df_presence_absence) %in% "bin_uri")]
+# Setting the BIN IDs as row names (Original code)
+#rownames(df_presence_absence) <- df_presence_absence$bin_uri
+#df_presence_absence <- df_presence_absence[, !(names(df_presence_absence) %in% "bin_uri")]
+
+#edit 1: Shorten rowname conversion 
+df_presence_absence <- df_presence_absence %>% column_to_rownames("bin_uri")
+
 
 # Checkpoint for presence-absence table
 nrow(df_presence_absence) # Should be 24 as there are 24 unique BINs
@@ -253,3 +259,35 @@ plot(ls_g_high,
   edge.color = "gray70",
   main = "Network of Domestic vs. Wild Canidae Species \n in Continental regions"
 )
+
+#edit 2 Create Abundance dataframe and calculate Shannon's diversity index(H')
+# It quantifies community diversity by incorporating both richness (number of BINs present) and evenness (how evenly individuals are distributed across BINs). Higher H' values indicate a community with more BIN types and more balanced abundances.
+#Create dataframe with BIN Richness(columns) by continent(rows) 
+df_abundance <- as.data.frame(cleaned_data_bins) %>% 
+  group_by(Continent, bin_uri) %>% 
+  count() %>% 
+  pivot_wider(
+    names_from = bin_uri, 
+    values_from = n, 
+    values_fill = 0 )
+#Make continent row names
+df_abundance <- df_abundance %>% column_to_rownames("Continent")
+#add Shannons index 
+
+df_abundance <- df_abundance %>% mutate(Shannon = vegan::diversity(df_abundance, index ="shannon"))
+
+#Highest BIN diversity in the Middle east and   North Africa
+print(df_abundance$Shannon)
+
+#Edit 3 : Bar plot for shannons index 
+df_abundance$Continent <- rownames(df_abundance)
+
+ggplot(df_abundance, aes(x = Continent, y = Shannon, fill = Continent)) +
+  geom_col() +
+  labs(title = "Shannon Diversity Index by Continent",
+       y = "Shannon Index (H')",
+       x = "") +
+  theme_minimal()
+
+ggsave("../figures/Shannon_diversity_barplot.png", width = 13.5, height = 8, dpi = 300)
+
